@@ -1,0 +1,6 @@
+{
+  "name": "Gathering Rekreasi Pangandaran 2026",
+  "description": "Aplikasi Manajemen Registrasi & Gathering Rekreasi Pangandaran Tahun 2026 - Dashboard Admin, Pendaftaran Peserta & Keluarga, Alokasi Bis, Hotel & Kaos, Log Aktivitas, dan Integrasi Berkas",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

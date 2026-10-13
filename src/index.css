@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    border-color: rgba(51, 65, 85, 0.4);
+  }
+
+  /* Custom Sleek Dark Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #090d16;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
+
+/* Print styling for Participant Card */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Hide everything on page by default */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Reveal only printable card and its children */
+  #printable-card,
+  #printable-card * {
+    visibility: visible;
+  }
+
+  #printable-card {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 16px !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    page-break-inside: avoid;
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Printable contrast adjustments */
+  #printable-card .text-white,
+  #printable-card .text-slate-100,
+  #printable-card .text-slate-200,
+  #printable-card .text-slate-300 {
+    color: #0f172a !important;
+  }
+
+  #printable-card .text-slate-400,
+  #printable-card .text-cyan-200\/80 {
+    color: #475569 !important;
+  }
+
+  #printable-card .bg-slate-800\/60,
+  #printable-card .bg-slate-800\/40,
+  #printable-card .bg-slate-900,
+  #printable-card .bg-slate-950\/80,
+  #printable-card .bg-slate-950\/85,
+  #printable-card .bg-slate-950\/95 {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  #printable-card .border-slate-700\/60,
+  #printable-card .border-slate-800,
+  #printable-card .border-cyan-500\/40,
+  #printable-card .border-cyan-500\/30,
+  #printable-card .border-cyan-400\/70 {
+    border-color: #0284c7 !important;
+  }
+
+  #printable-card .text-cyan-400,
+  #printable-card .text-cyan-300 {
+    color: #0284c7 !important;
+  }
+
+  #printable-card .text-amber-400,
+  #printable-card .text-amber-300 {
+    color: #b45309 !important;
+  }
+
+  #printable-card .text-emerald-400 {
+    color: #047857 !important;
+  }
+
+  #printable-card .text-blue-400,
+  #printable-card .text-blue-300 {
+    color: #2563eb !important;
+  }
+}
