@@ -6,12 +6,29 @@ import { createServer as createViteServer } from 'vite';
 import { DatabaseSchema, Peserta, MasterUnitKerja, MasterJabatan, MasterKaos, MasterBis, MasterHotel, MasterTempatMakan, MasterTempatAcara, AktivitasLog, AnggotaKeluarga, DokumenLampiran } from './src/types';
 
 const PORT = Number(process.env.PORT) || 3000;
-const DATA_DIR = path.join(process.cwd(), 'data');
+const isVercel = Boolean(process.env.VERCEL);
+const DATA_DIR = isVercel ? path.join('/tmp', 'data') : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (e) {
+    console.warn('Warning creating DATA_DIR:', e);
+  }
+}
+
+// In Vercel environment, seed DB file into /tmp/data/db.json if not present
+if (isVercel && !fs.existsSync(DB_FILE)) {
+  const seedFile = path.join(process.cwd(), 'data', 'db.json');
+  if (fs.existsSync(seedFile)) {
+    try {
+      fs.copyFileSync(seedFile, DB_FILE);
+    } catch (e) {
+      console.warn('Could not copy seed db file in Vercel:', e);
+    }
+  }
 }
 
 // ----------------------------------------------------
@@ -437,8 +454,12 @@ class DatabaseEngine {
 
   private loadDatabase(): DatabaseSchema {
     try {
-      if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      const targetFile = fs.existsSync(DB_FILE)
+        ? DB_FILE
+        : (fs.existsSync(path.join(process.cwd(), 'data', 'db.json')) ? path.join(process.cwd(), 'data', 'db.json') : null);
+
+      if (targetFile) {
+        const raw = fs.readFileSync(targetFile, 'utf-8');
         const parsed: DatabaseSchema = JSON.parse(raw);
         parsed.unitKerja = deduplicateMaster(parsed.unitKerja);
         parsed.jabatan = deduplicateMaster(parsed.jabatan);
@@ -480,7 +501,11 @@ class DatabaseEngine {
   }
 
   private saveDatabaseSync(data: DatabaseSchema) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('Warning saving DB file (filesystem may be read-only):', e);
+    }
   }
 
   public async acquireLock(): Promise<() => void> {
@@ -551,7 +576,7 @@ const dbEngine = new DatabaseEngine();
 // ----------------------------------------------------
 // Express Server Setup
 // ----------------------------------------------------
-async function startServer() {
+export function createServerApp() {
   const app = express();
 
   // Middleware: JSON with 10MB limit for base64 file payloads
@@ -560,6 +585,14 @@ async function startServer() {
 
   // Serve static assets from public folder directly (favicon, etc.)
   app.use(express.static(path.join(process.cwd(), 'public')));
+
+  // Normalize /api prefix if stripped by Vercel rewrites or proxies
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.url && !req.url.startsWith('/api') && (req.url.startsWith('/public') || req.url.startsWith('/admin') || req.url.startsWith('/auth'))) {
+      req.url = '/api' + req.url;
+    }
+    next();
+  });
 
   // Global XSS Sanitization Middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -1792,16 +1825,22 @@ async function startServer() {
     res.json({ success: true, message: 'Sinkronisasi Google Drive Berhasil', config: dbEngine.getRead().driveConfig });
   });
 
-  // --------------------------------------------------
-  // Vite Middleware integration
-  // --------------------------------------------------
-  if (process.env.NODE_ENV !== 'production') {
+  return app;
+}
+
+export const app = createServerApp();
+
+// --------------------------------------------------
+// Standalone Server & Vite Middleware integration
+// --------------------------------------------------
+export async function startServer() {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (!process.env.VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req: Request, res: Response) => {
@@ -1814,4 +1853,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
+  startServer();
+}
+
+export default app;
