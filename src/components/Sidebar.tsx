@@ -19,17 +19,9 @@ import {
   Compass,
   X
 } from 'lucide-react';
-import { AdminUser } from '../types';
+import { AdminUser, NavTab } from '../types';
 
-export type NavTab = 
-  | 'pendaftaran'
-  | 'cek-status'
-  | 'dashboard'
-  | 'peserta'
-  | 'keluarga'
-  | 'master-data'
-  | 'google-drive'
-  | 'log-aktivitas';
+export type { NavTab };
 
 interface SidebarProps {
   currentTab?: NavTab;

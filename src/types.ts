@@ -14,7 +14,7 @@ export interface AnggotaKeluarga {
   hubungan: 'Suami' | 'Istri' | 'Anak 1' | 'Anak 2' | 'Anak 3' | 'Orang Tua' | 'Lainnya';
   kategoriUsia: 'Dewasa' | 'Anak-anak' | 'Balita';
   usia?: number | string;
-  ukuranKaosId: string;
+  ukuranKaosId?: string;
   ukuranKaosNama: string;
   catatan?: string;
 }
@@ -267,3 +267,13 @@ export interface DatabaseSchema {
     lastLogin?: string;
   }[];
 }
+
+export type NavTab = 
+  | 'pendaftaran'
+  | 'cek-status'
+  | 'dashboard'
+  | 'peserta'
+  | 'keluarga'
+  | 'master-data'
+  | 'google-drive'
+  | 'log-aktivitas';

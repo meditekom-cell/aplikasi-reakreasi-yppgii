@@ -238,14 +238,22 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onNavigate }) 
         </div>
       </form>
 
-      {/* Error Message */}
+      {/* Error Message Panel / Pencarian Tidak Ditemukan */}
       {errorMsg && (
         <div className="max-w-2xl mx-auto mb-8 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm flex items-start gap-3 animate-shake">
           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold">Pencarian Tidak Ditemukan</p>
-            <p className="text-xs text-rose-200/90 mt-0.5">{errorMsg}</p>
+          <div className="flex-1">
+            <h4 className="font-bold text-rose-200">Pencarian Tidak Ditemukan</h4>
+            <p className="mt-0.5 text-rose-300/90">{errorMsg}</p>
           </div>
+        </div>
+      )}
+
+      {/* Empty State when searched without explicit error */}
+      {!errorMsg && hasSearched && hasilList.length === 0 && !loading && (
+        <div className="max-w-2xl mx-auto mb-6 p-4 rounded-2xl bg-slate-900/70 border border-slate-800 text-center text-slate-400 text-sm">
+          <p className="font-semibold text-slate-300">Data tidak ditemukan</p>
+          <p className="text-xs text-slate-500 mt-1">Pastikan nomor WhatsApp sesuai dengan yang didaftarkan.</p>
         </div>
       )}
 
@@ -415,40 +423,41 @@ export const CheckStatusView: React.FC<CheckStatusViewProps> = ({ onNavigate }) 
         </div>
       )}
 
+
+
       {/* Registration Invitation Banner for New Visitors */}
       {onNavigate && (
         <div className={`max-w-2xl mx-auto mt-8 p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left ${
-          Date.now() > new Date('2026-09-20T23:59:59+07:00').getTime()
-            ? 'bg-gradient-to-r from-slate-900/90 to-slate-950/90 border-slate-700/60'
-            : 'bg-gradient-to-r from-cyan-950/60 to-blue-950/60 border-cyan-500/30'
+          new Date() > new Date('2026-09-20T23:59:59+07:00')
+            ? 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+            : 'bg-cyan-950/20 border-cyan-500/30 text-cyan-200'
         }`}>
           <div>
-            <p className="text-xs font-bold text-white">
-              {Date.now() > new Date('2026-09-20T23:59:59+07:00').getTime()
-                ? 'Masa Pendaftaran Resmi Berakhir (20 September 2026)'
+            <h4 className="font-semibold text-white">
+              {new Date() > new Date('2026-09-20T23:59:59+07:00')
+                ? 'Masa Pendaftaran Resmi Berakhir'
                 : 'Belum mendaftar Gathering Pangandaran 2026?'}
-            </p>
-            <p className="text-[11px] text-slate-300">
-              {Date.now() > new Date('2026-09-20T23:59:59+07:00').getTime()
-                ? 'Pendaftaran peserta baru telah ditutup. Halaman ini digunakan untuk verifikasi status & cetak kartu peserta.'
-                : 'Daftarkan diri Anda beserta keluarga melalui formulir pendaftaran (9 Ags - 20 Sep 2026).'}
+            </h4>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {new Date() > new Date('2026-09-20T23:59:59+07:00')
+                ? 'Batas akhir pendaftaran peserta adalah 20 September 2026.'
+                : 'Pendaftaran terbuka sampai 20 September 2026 untuk seluruh pegawai & keluarga.'}
             </p>
           </div>
           <button
-            type="button"
             onClick={() => onNavigate('pendaftaran')}
-            className={`px-4 py-2 rounded-xl font-bold text-xs shrink-0 transition-all shadow-sm ${
-              Date.now() > new Date('2026-09-20T23:59:59+07:00').getTime()
-                ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
-                : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950'
+            className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+              new Date() > new Date('2026-09-20T23:59:59+07:00')
+                ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40'
+                : 'bg-cyan-500 text-slate-900 hover:bg-cyan-400 shadow-md shadow-cyan-500/20'
             }`}
           >
-            {Date.now() > new Date('2026-09-20T23:59:59+07:00').getTime() ? 'Informasi Pendaftaran' : 'Formulir Pendaftaran'}
+            {new Date() > new Date('2026-09-20T23:59:59+07:00')
+              ? 'Informasi Pendaftaran'
+              : 'Formulir Pendaftaran'}
           </button>
         </div>
       )}
-
-      {/* Participant Card Modal */}
       {selectedPeserta && (
         <ParticipantCardModal
           peserta={selectedPeserta}

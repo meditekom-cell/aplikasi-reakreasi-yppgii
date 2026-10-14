@@ -13,8 +13,8 @@ import { AdminLoginModal } from './components/AdminLoginModal';
 import { ParticipantCardModal } from './components/ParticipantCardModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { AutoInstallModal } from './components/AutoInstallModal';
 import { AdminUser, Peserta } from './types';
+import { api } from './services/api';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('cek-status');
@@ -25,17 +25,41 @@ export default function App() {
   const [targetTabAfterLogin, setTargetTabAfterLogin] = useState<NavTab | null>(null);
   const [registeredCard, setRegisteredCard] = useState<Peserta | null>(null);
 
-  // Check existing session
+  // Check existing session on server (Cookie/Session based, no tokens)
   useEffect(() => {
-    try {
-      const savedUser = localStorage.getItem('gathering_admin_user');
-      const savedToken = localStorage.getItem('gathering_admin_token');
-      if (savedUser && savedToken) {
-        setAdminUser(JSON.parse(savedUser));
+    let isMounted = true;
+    api.checkSession().then((res) => {
+      if (!isMounted) return;
+      if (res.authenticated && res.user) {
+        setAdminUser(res.user);
+        localStorage.setItem('gathering_admin_user', JSON.stringify(res.user));
+      } else {
+        // Jika server menyatakan tidak ada sesi aktif, bersihkan state lokal
+        const savedUser = localStorage.getItem('gathering_admin_user');
+        const sessId = localStorage.getItem('gathering_session_id');
+        if (!sessId && !savedUser) {
+          setAdminUser(null);
+        } else if (savedUser && !sessId) {
+          // offline/fallback mode
+          try {
+            setAdminUser(JSON.parse(savedUser));
+          } catch {
+            setAdminUser(null);
+          }
+        }
       }
-    } catch (e) {
-      console.error(e);
-    }
+    }).catch(() => {
+      try {
+        const savedUser = localStorage.getItem('gathering_admin_user');
+        if (savedUser) setAdminUser(JSON.parse(savedUser));
+      } catch {
+        // ignore
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleTabSelect = (tab: NavTab) => {
@@ -62,9 +86,8 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('gathering_admin_user');
-    localStorage.removeItem('gathering_admin_token');
+  const handleLogout = async () => {
+    await api.logout();
     setAdminUser(null);
     if (['dashboard', 'peserta', 'keluarga', 'master-data', 'google-drive', 'log-aktivitas'].includes(activeTab)) {
       setActiveTab('cek-status');
@@ -175,9 +198,6 @@ export default function App() {
 
       {/* PWA Offline Connectivity Indicator */}
       <OfflineIndicator />
-
-      {/* PWA Auto Install Prompt from Barcode Scan */}
-      <AutoInstallModal />
     </div>
   );
 }

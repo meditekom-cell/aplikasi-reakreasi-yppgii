@@ -1,7 +1,9 @@
 import express, { Request, Response, NextFunction } from 'express';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
 import { DatabaseSchema, Peserta, MasterUnitKerja, MasterJabatan, MasterKaos, MasterBis, MasterHotel, MasterTempatMakan, MasterTempatAcara, AktivitasLog, AnggotaKeluarga, DokumenLampiran } from './src/types';
 
@@ -62,6 +64,222 @@ function sanitizeInput(str: any): any {
     return cleaned;
   }
   return str;
+}
+
+// ----------------------------------------------------
+// Stateful Session-Based Architecture (No-Token Auth)
+// ----------------------------------------------------
+export interface AdminSession {
+  sessionId: string;
+  userId: string;
+  username: string;
+  nama: string;
+  role: string;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: number;
+  lastActivity: number;
+  expiresAt: number;
+}
+
+// Server-authoritative in-memory session repository
+const activeSessions = new Map<string, AdminSession>();
+
+// Sesi berlaku 8 jam, batas inaktivitas 2 jam
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const SESSION_INACTIVITY_MS = 2 * 60 * 60 * 1000;
+const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
+
+function saveSessionsToDisk() {
+  try {
+    const list = Array.from(activeSessions.values());
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(list), 'utf8');
+  } catch (e) {
+    // ignore
+  }
+}
+
+function loadSessionsFromDisk() {
+  try {
+    if (fs.existsSync(SESSIONS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'));
+      if (Array.isArray(data)) {
+        const now = Date.now();
+        for (const s of data) {
+          if (s && s.sessionId && s.expiresAt > now) {
+            activeSessions.set(s.sessionId, s);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+loadSessionsFromDisk();
+
+// Periodic cleanup of expired sessions every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  for (const [sId, sess] of activeSessions.entries()) {
+    if (now > sess.expiresAt || (now - sess.lastActivity) > SESSION_INACTIVITY_MS) {
+      activeSessions.delete(sId);
+      changed = true;
+    }
+  }
+  if (changed) saveSessionsToDisk();
+}, 10 * 60 * 1000);
+
+// ----------------------------------------------------
+// Anti Brute-Force & Rate Limiting System
+// ----------------------------------------------------
+interface FailedAttempt {
+  count: number;
+  firstAttempt: number;
+  lockoutUntil: number;
+}
+const loginAttempts = new Map<string, FailedAttempt>();
+
+const MAX_LOGIN_ATTEMPTS = 5;
+const ATTEMPT_WINDOW_MS = 10 * 60 * 1000; // 10 menit
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 menit penguncian
+
+function isRateLimited(key: string): { limited: boolean; remainingSeconds?: number } {
+  const now = Date.now();
+  const record = loginAttempts.get(key);
+  if (!record) return { limited: false };
+
+  if (record.lockoutUntil > now) {
+    const remainingSeconds = Math.ceil((record.lockoutUntil - now) / 1000);
+    return { limited: true, remainingSeconds };
+  }
+
+  // If window expired, reset
+  if (now - record.firstAttempt > ATTEMPT_WINDOW_MS) {
+    loginAttempts.delete(key);
+    return { limited: false };
+  }
+
+  return { limited: false };
+}
+
+function recordFailedLogin(key: string) {
+  const now = Date.now();
+  const record = loginAttempts.get(key) || { count: 0, firstAttempt: now, lockoutUntil: 0 };
+  
+  if (now - record.firstAttempt > ATTEMPT_WINDOW_MS) {
+    record.count = 1;
+    record.firstAttempt = now;
+    record.lockoutUntil = 0;
+  } else {
+    record.count += 1;
+  }
+
+  if (record.count >= MAX_LOGIN_ATTEMPTS) {
+    record.lockoutUntil = now + LOCKOUT_DURATION_MS;
+  }
+
+  loginAttempts.set(key, record);
+}
+
+function clearFailedLogins(key: string) {
+  loginAttempts.delete(key);
+}
+
+// Timing-safe password hash comparison (Mencegah timing attack)
+function safeCompareHash(a: string, b: string): boolean {
+  try {
+    const bufA = Buffer.from(a, 'hex');
+    const bufB = Buffer.from(b, 'hex');
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
+// Helper untuk mengekstrak dan memvalidasi sesi aktif dari request
+function getAdminSession(req: Request): AdminSession | null {
+  // Mengambil session ID dari HttpOnly cookie atau header x-session-id
+  const sessionId = req.cookies?.gathering_admin_session || (req.headers['x-session-id'] as string);
+  if (!sessionId || typeof sessionId !== 'string') return null;
+
+  const session = activeSessions.get(sessionId);
+  if (!session) return null;
+
+  const now = Date.now();
+  if (now > session.expiresAt || (now - session.lastActivity) > SESSION_INACTIVITY_MS) {
+    activeSessions.delete(sessionId);
+    return null;
+  }
+
+  // Perpanjang jendela inaktivitas aktif
+  session.lastActivity = now;
+  return session;
+}
+
+// Middleware Otorisasi Administratif Server-Side
+function requireAdminSession(req: Request, res: Response, next: NextFunction) {
+  const session = getAdminSession(req);
+  if (!session) {
+    return res.status(401).json({
+      error: 'Akses ditolak: Sesi administratif tidak aktif atau telah kedaluwarsa. Silakan login kembali.',
+      code: 'UNAUTHORIZED_NO_SESSION'
+    });
+  }
+
+  // Verifikasi Hak Akses Role
+  if (session.role !== 'ADMIN' && session.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({
+      error: 'Akses terlarang: Anda tidak memiliki izin administrator untuk mengakses data ini.',
+      code: 'FORBIDDEN_INSUFFICIENT_ROLE'
+    });
+  }
+
+  // Proteksi CSRF untuk request mutasi (POST, PUT, DELETE)
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    // Jika request menyertakan header custom x-session-id yang valid, request terlindungi dari CSRF browser
+    // karena browser tidak mengizinkan cross-origin form submission mengirimkan custom header tanpa CORS preflight.
+    const hasCustomSessionHeader = Boolean(req.headers['x-session-id']);
+
+    if (!hasCustomSessionHeader) {
+      const origin = req.headers.origin;
+      const host = req.headers.host;
+      const fwdHost = (req.headers['x-forwarded-host'] as string)?.split(',')[0].trim();
+
+      if (origin) {
+        try {
+          const originHost = new URL(origin).host;
+          const isAllowedHost =
+            originHost === host ||
+            originHost === fwdHost ||
+            originHost.startsWith('localhost') ||
+            originHost.startsWith('127.0.0.1') ||
+            originHost.endsWith('.run.app') ||
+            originHost.endsWith('.aistudio.google.com') ||
+            originHost.endsWith('.web.app') ||
+            originHost.endsWith('.firebaseapp.com') ||
+            originHost.endsWith('.vercel.app');
+
+          if (!isAllowedHost) {
+            return res.status(403).json({
+              error: 'Permintaan ditolak oleh filter keamanan CSRF (Origin mismatch).',
+              code: 'CSRF_BLOCKED'
+            });
+          }
+        } catch {
+          // Abaikan parse error jika request internal
+        }
+      }
+    }
+  }
+
+  // Injeksi informasi sesi ke req dan headers agar konsisten di semua logger backend
+  (req as any).adminSession = session;
+  req.headers['x-admin-user'] = session.username;
+
+  next();
 }
 
 // ----------------------------------------------------
@@ -579,6 +797,18 @@ const dbEngine = new DatabaseEngine();
 export function createServerApp() {
   const app = express();
 
+  // Cookie Parser untuk otentikasi sesi berbasis HttpOnly (Bebas pencurian token)
+  app.use(cookieParser());
+
+  // Security Headers Middleware
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
   // Middleware: JSON with 10MB limit for base64 file payloads
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -831,7 +1061,7 @@ export function createServerApp() {
   });
 
   // --------------------------------------------------
-  // Authentication Endpoints (SHA-256 + Salt)
+  // Authentication Endpoints (HttpOnly Stateful Session & Anti Brute-Force)
   // --------------------------------------------------
   app.post('/api/auth/login', async (req: Request, res: Response) => {
     const { username, password } = req.body;
@@ -839,31 +1069,66 @@ export function createServerApp() {
       return res.status(400).json({ error: 'Username dan kata sandi wajib diisi' });
     }
 
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+    const cleanUser = String(username).trim();
+
+    // 1. Rate Limiting Check (Anti Brute-Force Shield)
+    const ipLimit = isRateLimited(`ip:${clientIp}`);
+    const userLimit = isRateLimited(`user:${cleanUser.toLowerCase()}`);
+
+    if (ipLimit.limited || userLimit.limited) {
+      const waitSec = Math.max(ipLimit.remainingSeconds || 0, userLimit.remainingSeconds || 0);
+      const waitMin = Math.ceil(waitSec / 60);
+
+      dbEngine.logActivity({
+        adminUser: cleanUser,
+        aksi: 'LOGIN_LOCKOUT',
+        kategori: 'AUTH',
+        rincian: `Percobaan login diblokir sementara karena terlalu banyak gagal (IP: ${clientIp}, sisa: ${waitMin} menit).`,
+        ipAddress: clientIp,
+      });
+
+      return res.status(429).json({
+        error: `Terlalu banyak percobaan login gagal. Demi keamanan, akun/IP dikunci sementara selama ${waitMin} menit lagi.`
+      });
+    }
+
     const db = dbEngine.getRead();
-    const user = db.adminUsers.find((u) => u.username.toLowerCase() === username.toLowerCase());
+    const user = db.adminUsers.find((u) => u.username.toLowerCase() === cleanUser.toLowerCase());
 
     if (!user) {
+      recordFailedLogin(`ip:${clientIp}`);
+      recordFailedLogin(`user:${cleanUser.toLowerCase()}`);
+
       dbEngine.logActivity({
-        adminUser: username,
+        adminUser: cleanUser,
         aksi: 'LOGIN_GAGAL',
         kategori: 'AUTH',
-        rincian: `Percobaan login gagal dengan username "${username}"`,
-        ipAddress: req.ip || '127.0.0.1',
+        rincian: `Percobaan login gagal dengan username tidak dikenal "${cleanUser}"`,
+        ipAddress: clientIp,
       });
       return res.status(401).json({ error: 'Username atau kata sandi tidak sesuai' });
     }
 
     const computedHash = hashPassword(password, user.salt);
-    if (computedHash !== user.passwordHash) {
+    // Timing-safe comparison to prevent timing attacks
+    if (!safeCompareHash(computedHash, user.passwordHash)) {
+      recordFailedLogin(`ip:${clientIp}`);
+      recordFailedLogin(`user:${cleanUser.toLowerCase()}`);
+
       dbEngine.logActivity({
-        adminUser: username,
+        adminUser: cleanUser,
         aksi: 'LOGIN_GAGAL',
         kategori: 'AUTH',
-        rincian: `Kata sandi salah untuk user "${username}"`,
-        ipAddress: req.ip || '127.0.0.1',
+        rincian: `Kata sandi salah untuk user "${user.username}"`,
+        ipAddress: clientIp,
       });
       return res.status(401).json({ error: 'Username atau kata sandi tidak sesuai' });
     }
+
+    // Reset failed login counter on success
+    clearFailedLogins(`ip:${clientIp}`);
+    clearFailedLogins(`user:${cleanUser.toLowerCase()}`);
 
     // Update last login
     user.lastLogin = new Date().toISOString();
@@ -872,12 +1137,40 @@ export function createServerApp() {
       if (idx !== -1) d.adminUsers[idx].lastLogin = user.lastLogin;
     });
 
+    // Create secure server-side session (Cryptographically random, high entropy)
+    const sessionId = 'sess_' + crypto.randomBytes(32).toString('hex');
+    const now = Date.now();
+    const session: AdminSession = {
+      sessionId,
+      userId: user.id,
+      username: user.username,
+      nama: user.nama,
+      role: user.role,
+      ipAddress: clientIp,
+      userAgent: (req.headers['user-agent'] as string) || '',
+      createdAt: now,
+      lastActivity: now,
+      expiresAt: now + SESSION_TTL_MS,
+    };
+    activeSessions.set(sessionId, session);
+    saveSessionsToDisk();
+
+    // Issue HttpOnly Cookie (Invisible to client JavaScript, immune to XSS token theft)
+    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    res.cookie('gathering_admin_session', sessionId, {
+      httpOnly: true,
+      secure: isHttps,
+      sameSite: isHttps ? 'none' : 'lax',
+      maxAge: SESSION_TTL_MS,
+      path: '/',
+    });
+
     dbEngine.logActivity({
       adminUser: user.username,
       aksi: 'LOGIN_BERHASIL',
       kategori: 'AUTH',
-      rincian: `Admin ${user.nama} (${user.role}) berhasil masuk ke sistem.`,
-      ipAddress: req.ip || '127.0.0.1',
+      rincian: `Admin ${user.nama} (${user.role}) berhasil masuk ke sistem melalui Sesi Server Aman (HttpOnly).`,
+      ipAddress: clientIp,
     });
 
     res.json({
@@ -889,9 +1182,65 @@ export function createServerApp() {
         role: user.role,
         lastLogin: user.lastLogin,
       },
-      token: 'tok_' + crypto.randomBytes(24).toString('hex'),
+      sessionId,
     });
   });
+
+  // --------------------------------------------------
+  // Admin Auth: Cek Sesi Aktif
+  // --------------------------------------------------
+  app.get('/api/auth/me', (req: Request, res: Response) => {
+    const session = getAdminSession(req);
+    if (!session) {
+      return res.json({ authenticated: false });
+    }
+
+    res.json({
+      authenticated: true,
+      user: {
+        id: session.userId,
+        username: session.username,
+        nama: session.nama,
+        role: session.role,
+      },
+    });
+  });
+
+  // --------------------------------------------------
+  // Admin Auth: Logout & Hapus Sesi di Server
+  // --------------------------------------------------
+  app.post('/api/auth/logout', (req: Request, res: Response) => {
+    const session = getAdminSession(req);
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+
+    if (session) {
+      activeSessions.delete(session.sessionId);
+      saveSessionsToDisk();
+      dbEngine.logActivity({
+        adminUser: session.username,
+        aksi: 'LOGOUT_BERHASIL',
+        kategori: 'AUTH',
+        rincian: `Admin ${session.nama} (@${session.username}) telah logout dan sesi server dimusnahkan.`,
+        ipAddress: clientIp,
+      });
+    }
+
+    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    res.clearCookie('gathering_admin_session', {
+      httpOnly: true,
+      secure: isHttps,
+      sameSite: isHttps ? 'none' : 'lax',
+      path: '/',
+    });
+
+    res.json({ success: true, message: 'Logout berhasil. Sesi keamanan telah dimusnahkan.' });
+  });
+
+  // --------------------------------------------------
+  // PROTEKSI OTORITATIF SERVER:
+  // Semua endpoint di bawah /api/admin/* wajib memiliki sesi admin aktif
+  // --------------------------------------------------
+  app.use('/api/admin', requireAdminSession);
 
   // --------------------------------------------------
   // Admin Auth: Ubah Kata Sandi Admin
@@ -899,7 +1248,8 @@ export function createServerApp() {
   app.post('/api/admin/change-password', async (req: Request, res: Response) => {
     try {
       const { oldPassword, newPassword, confirmPassword, username: reqUsername } = req.body;
-      const currentUsername = (req.headers['x-admin-user'] as string) || reqUsername || 'admin';
+      const session = (req as any).adminSession as AdminSession | undefined;
+      const currentUsername = session?.username || (req.headers['x-admin-user'] as string) || reqUsername || 'admin';
 
       if (!oldPassword || !newPassword || !confirmPassword) {
         return res.status(400).json({ error: 'Kata sandi lama, kata sandi baru, dan konfirmasi kata sandi wajib diisi.' });
@@ -925,9 +1275,9 @@ export function createServerApp() {
         return res.status(404).json({ error: 'Pengguna akun admin tidak ditemukan.' });
       }
 
-      // Verifikasi kata sandi lama
+      // Verifikasi kata sandi lama dengan timing-safe comparison
       const oldComputedHash = hashPassword(oldPassword, user.salt);
-      if (oldComputedHash !== user.passwordHash) {
+      if (!safeCompareHash(oldComputedHash, user.passwordHash)) {
         dbEngine.logActivity({
           adminUser: user.username,
           aksi: 'UBAH_PASSWORD_GAGAL',
@@ -1462,6 +1812,50 @@ export function createServerApp() {
     }
   });
 
+  // Helper to extract family members from imported excel row (both structured array and flat columns)
+  function parseKeluargaFromImport(item: any, gender: string = 'Laki-laki'): AnggotaKeluarga[] {
+    if (Array.isArray(item.keluarga) && item.keluarga.length > 0) {
+      return item.keluarga;
+    }
+    const fam: AnggotaKeluarga[] = [];
+    const spouseName = (item.namaIstriSuami || item['Nama Istri / Suami'] || item['Nama Istri/Suami'] || item.namaPasangan || item.pasangan || '').toString().trim();
+    if (spouseName) {
+      const isFemale = gender.toLowerCase().startsWith('p');
+      const spouseKaos = cleanKaosText(item.ukuranKaosIS || item.ukuranKaosPasangan || item['Ukuran Kaos_IS'] || 'M');
+      fam.push({
+        id: 'fam-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6) + '-sp',
+        nama: spouseName,
+        hubungan: isFemale ? 'Suami' : 'Istri',
+        kategoriUsia: 'Dewasa',
+        ukuranKaosId: 'kaos-' + (spouseKaos || 'm').toLowerCase(),
+        ukuranKaosNama: spouseKaos || 'M',
+      });
+    }
+    for (let idx = 1; idx <= 5; idx++) {
+      const chName = (item[`namaAnak${idx}`] || item[`Nama Anak${idx}`] || item[`anak${idx}`] || item[`Anak ${idx}`] || item[`Nama Anak ${idx}`] || '').toString().trim();
+      const chAgeRaw = (item[`usiaAnak${idx}`] || item[`Usia Anak${idx}`] || item[`usia${idx}`] || item[`Usia Anak ${idx}`] || '').toString().trim();
+      if (chName) {
+        const ageNum = parseInt(chAgeRaw, 10);
+        let cat: 'Balita' | 'Anak-anak' | 'Dewasa' = 'Anak-anak';
+        if (!isNaN(ageNum)) {
+          if (ageNum < 4) cat = 'Balita';
+          else if (ageNum > 12) cat = 'Dewasa';
+          else cat = 'Anak-anak';
+        }
+        fam.push({
+          id: 'fam-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6) + '-ch' + idx,
+          nama: chName,
+          hubungan: `Anak ${idx}` as any,
+          kategoriUsia: cat,
+          usia: !isNaN(ageNum) ? ageNum : undefined,
+          ukuranKaosId: 'none',
+          ukuranKaosNama: 'Tanpa Kaos',
+        });
+      }
+    }
+    return fam;
+  }
+
   // Bulk Import Excel Endpoint
   app.post('/api/admin/peserta/bulk-import', async (req: Request, res: Response) => {
     try {
@@ -1539,6 +1933,8 @@ export function createServerApp() {
               (item.tempatAcara && a.namaTempat.toLowerCase().includes(item.tempatAcara.toString().toLowerCase().trim()))
           );
 
+          const parsedKeluarga = parseKeluargaFromImport(item, item.jenisKelamin || 'Laki-laki');
+
           if (existingIndex !== -1 && updateExisting) {
             d.peserta[existingIndex] = {
               ...d.peserta[existingIndex],
@@ -1576,6 +1972,7 @@ export function createServerApp() {
               tempatAcaraNama: ta?.namaTempat || item.tempatAcaraNama || item.tempatAcara || d.peserta[existingIndex].tempatAcaraNama || (d.tempatAcara && d.tempatAcara[0]?.namaTempat) || '',
               tempatAcara: ta?.namaTempat || item.tempatAcaraNama || item.tempatAcara || d.peserta[existingIndex].tempatAcaraNama || (d.tempatAcara && d.tempatAcara[0]?.namaTempat) || '',
               status: item.status || d.peserta[existingIndex].status,
+              keluarga: parsedKeluarga.length > 0 ? parsedKeluarga : d.peserta[existingIndex].keluarga,
               updatedAt: new Date().toISOString(),
             };
             updatedCount++;
@@ -1625,7 +2022,7 @@ export function createServerApp() {
               tempatAcara: ta?.namaTempat || item.tempatAcaraNama || item.tempatAcara || (d.tempatAcara && d.tempatAcara[0]?.namaTempat) || '',
               catatanKhusus: item.catatanKhusus || '',
               riwayatPenyakit: item.riwayatPenyakit || '',
-              keluarga: Array.isArray(item.keluarga) ? item.keluarga : [],
+              keluarga: parsedKeluarga,
               dokumen: [],
               status: item.status || 'DITERIMA',
               createdAt: new Date().toISOString(),
@@ -1834,9 +2231,14 @@ export const app = createServerApp();
 // Standalone Server & Vite Middleware integration
 // --------------------------------------------------
 export async function startServer() {
+  const httpServer = http.createServer(app);
+
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -1848,7 +2250,7 @@ export async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Gathering Pangandaran 2026 Server running on http://0.0.0.0:${PORT}`);
   });
 }

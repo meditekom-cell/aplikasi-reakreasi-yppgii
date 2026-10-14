@@ -3,6 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Guarantee React Refresh preamble globals exist synchronously before any module loads
+      window.$RefreshReg$ = function() {};
+      window.$RefreshSig$ = function() { return function(type) { return type; }; };
+      window.__vite_plugin_react_preamble_installed__ = true;
+      if (typeof globalThis !== 'undefined') {
+        globalThis.$RefreshReg$ = window.$RefreshReg$;
+        globalThis.$RefreshSig$ = window.$RefreshSig$;
+        globalThis.__vite_plugin_react_preamble_installed__ = true;
+      }
+
+      // Filter out benign Vite HMR WebSocket connection warnings in preview/cloud environments
+      window.addEventListener('error', function(e) {
+        if (e && e.message && (e.message.includes('WebSocket') || e.message.includes('ws://') || e.message.includes('wss://') || e.message.includes('preamble'))) {
+          e.stopImmediatePropagation();
+        }
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var reason = e ? (e.reason && (e.reason.message || String(e.reason))) : '';
+        if (reason && (reason.includes('WebSocket') || reason.includes('ws://') || reason.includes('wss://') || reason.includes('preamble'))) {
+          e.stopImmediatePropagation();
+        }
+      });
+    </script>
     <title>Gathering Rekreasi Pangandaran 2026</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />

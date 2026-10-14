@@ -62,7 +62,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate, onOp
       await api.syncDrive();
       await loadDashboard();
     } catch (err: any) {
-      alert('Sync gagal: ' + err.message);
+      setErrorMsg('Sinkronisasi gagal: ' + err.message);
     } finally {
       setSyncing(false);
     }

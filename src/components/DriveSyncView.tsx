@@ -10,6 +10,7 @@ export const DriveSyncView: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Editable config state
   const [folderId, setFolderId] = useState('');
@@ -34,8 +35,9 @@ export const DriveSyncView: React.FC = () => {
       setDriveEmail(cRes.driveEmail);
       setBackupEnabled(cRes.backupEnabled);
       setPesertaList(pRes.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setErrorMsg(err.message || 'Gagal memuat konfigurasi Google Drive');
     } finally {
       setLoading(false);
     }
@@ -45,6 +47,7 @@ export const DriveSyncView: React.FC = () => {
     e.preventDefault();
     try {
       setSaving(true);
+      setErrorMsg(null);
       const res = await api.updateDriveConfig({
         folderId,
         folderName,
@@ -55,7 +58,7 @@ export const DriveSyncView: React.FC = () => {
       setSuccessMsg('Konfigurasi Google Drive berhasil disimpan.');
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
-      alert('Gagal menyimpan: ' + err.message);
+      setErrorMsg('Gagal menyimpan: ' + (err.message || 'Terjadi kesalahan'));
     } finally {
       setSaving(false);
     }
@@ -64,13 +67,14 @@ export const DriveSyncView: React.FC = () => {
   const handleSyncNow = async () => {
     try {
       setSyncing(true);
+      setErrorMsg(null);
       const res = await api.syncDrive();
       setConfig(res.config);
       setSuccessMsg('Sinkronisasi dokumen seluruh peserta ke Google Drive berhasil!');
       setTimeout(() => setSuccessMsg(null), 3000);
       await loadData();
     } catch (err: any) {
-      alert('Gagal sinkronisasi: ' + err.message);
+      setErrorMsg('Gagal sinkronisasi: ' + (err.message || 'Terjadi kesalahan'));
     } finally {
       setSyncing(false);
     }
@@ -112,6 +116,13 @@ export const DriveSyncView: React.FC = () => {
         <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{successMsg}</span>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>{errorMsg}</span>
         </div>
       )}
 

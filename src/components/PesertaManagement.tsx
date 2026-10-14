@@ -540,8 +540,9 @@ export const PesertaManagement: React.FC = () => {
         'Status Perkawinan': 'Menikah',
         'Unit Kerja': 'MEDIKA',
         'Jabatan': 'Perawat Ahli',
-        'No HP / WA': '081234567890',
-        'Email': 'ahmad.fauzi@example.com',
+        'No HP Peserta': '081234567890',
+        'Ang_Kel': 1,
+        'Total_Romb': 2,
         'Ukuran Kaos_Pes': 'L',
         'Nama Istri / Suami': 'Dewi Lestari',
         'Ukuran Kaos_IS': 'M',
@@ -573,8 +574,9 @@ export const PesertaManagement: React.FC = () => {
         'Status Perkawinan': 'Menikah',
         'Unit Kerja': 'MEDIKA',
         'Jabatan': 'Dokter Spesialis',
-        'No HP / WA': '081987654321',
-        'Email': 'siti.rahmayanti@example.com',
+        'No HP Peserta': '081987654321',
+        'Ang_Kel': 1,
+        'Total_Romb': 2,
         'Ukuran Kaos_Pes': 'M',
         'Nama Istri / Suami': 'dr. Hendra Kusuma',
         'Ukuran Kaos_IS': 'XL',
@@ -606,8 +608,9 @@ export const PesertaManagement: React.FC = () => {
         'Status Perkawinan': 'Belum Menikah',
         'Unit Kerja': 'IT & SISTEM INFORMASI',
         'Jabatan': 'Staff TI',
-        'No HP / WA': '085712349988',
-        'Email': 'budi.santoso@example.com',
+        'No HP Peserta': '085712349988',
+        'Ang_Kel': 0,
+        'Total_Romb': 1,
         'Ukuran Kaos_Pes': 'XL',
         'Nama Istri / Suami': '',
         'Ukuran Kaos_IS': '',
@@ -642,8 +645,9 @@ export const PesertaManagement: React.FC = () => {
       { wch: 18 }, // Status Perkawinan
       { wch: 22 }, // Unit Kerja
       { wch: 20 }, // Jabatan
-      { wch: 16 }, // No HP / WA
-      { wch: 26 }, // Email
+      { wch: 18 }, // No HP Peserta
+      { wch: 12 }, // Ang_Kel
+      { wch: 14 }, // Total_Romb
       { wch: 16 }, // Ukuran Kaos_Pes
       { wch: 22 }, // Nama Istri / Suami
       { wch: 16 }, // Ukuran Kaos_IS
@@ -679,6 +683,9 @@ export const PesertaManagement: React.FC = () => {
       { 'Kolom': 'Status Perkawinan', 'Keterangan': 'Menikah, Belum Menikah, Cerai Hidup, atau Cerai Mati' },
       { 'Kolom': 'Unit Kerja', 'Keterangan': 'Nama Unit atau Kode Unit (contoh: MEDIKA, OPERASIONAL, IT, dll)' },
       { 'Kolom': 'Jabatan', 'Keterangan': 'Nama Jabatan atau level posisi' },
+      { 'Kolom': 'No HP Peserta', 'Keterangan': 'Nomor WhatsApp / HP aktif peserta' },
+      { 'Kolom': 'Ang_Kel', 'Keterangan': 'Jumlah anggota keluarga yang ikut (contoh: 0, 1, 2, dll)' },
+      { 'Kolom': 'Total_Romb', 'Keterangan': 'Total rombongan peserta (Pegawai + Jumlah Anggota Keluarga)' },
       { 'Kolom': 'Ukuran Kaos_Pes', 'Keterangan': 'Ukuran kaos pegawai/peserta (contoh: S, M, L, XL, XXL, 3XL)' },
       { 'Kolom': 'Nama Istri / Suami', 'Keterangan': 'Nama pasangan sah (jika ikut gathering)' },
       { 'Kolom': 'Ukuran Kaos_IS', 'Keterangan': 'Ukuran kaos pasangan Suami/Istri (contoh: S, M, L, XL, XXL)' },
@@ -748,7 +755,9 @@ export const PesertaManagement: React.FC = () => {
             jenisKelamin: findVal('jenis kelamin', 'jk', 'gender', 'jenis_kelamin').toLowerCase().startsWith('p') ? 'Perempuan' : 'Laki-laki',
             unitKerjaNama: findVal('unit kerja', 'unit_kerja', 'unit', 'divisi', 'departemen', 'bagian'),
             jabatanNama: findVal('jabatan', 'posisi', 'level'),
-            noHpWa: findVal('no hp/wa', 'no hp / wa', 'no hp', 'no wa', 'nohp', 'no_hp', 'telepon', 'whatsapp', 'phone'),
+            noHpWa: findVal('no hp peserta', 'no hp/wa', 'no hp / wa', 'no hp', 'no wa', 'nohp', 'no_hp', 'telepon', 'whatsapp', 'phone'),
+            angKel: findVal('ang_kel', 'ang kel', 'angkel', 'jml_ang_kel', 'jumlah anggota keluarga', 'anggota keluarga'),
+            totalRomb: findVal('total_romb', 'total romb', 'totalromb', 'total rombongan'),
             email: findVal('email', 'surel', 'e-mail'),
             ukuranKaosNama: findVal('ukuran kaos_pes', 'ukuran kaos pes', 'ukuran kaos', 'ukuran_kaos', 'kaos', 'size kaos', 'size baju', 'ukuran'),
             bisNama: findVal('armada bis', 'nomor bis', 'bus', 'bis', 'bis_nama', 'armada'),
@@ -826,7 +835,9 @@ export const PesertaManagement: React.FC = () => {
               jenisKelamin: findVal('jenis kelamin', 'jk', 'gender', 'jenis_kelamin').toLowerCase().startsWith('p') ? 'Perempuan' : 'Laki-laki',
               unitKerjaNama: findVal('unit kerja', 'unit_kerja', 'unit', 'divisi', 'departemen', 'bagian'),
               jabatanNama: findVal('jabatan', 'posisi', 'level'),
-              noHpWa: findVal('no hp/wa', 'no hp / wa', 'no hp', 'no wa', 'nohp', 'no_hp', 'telepon', 'whatsapp', 'phone'),
+              noHpWa: findVal('no hp peserta', 'no hp/wa', 'no hp / wa', 'no hp', 'no wa', 'nohp', 'no_hp', 'telepon', 'whatsapp', 'phone'),
+              angKel: findVal('ang_kel', 'ang kel', 'angkel', 'jml_ang_kel', 'jumlah anggota keluarga', 'anggota keluarga'),
+              totalRomb: findVal('total_romb', 'total romb', 'totalromb', 'total rombongan'),
               email: findVal('email', 'surel', 'e-mail'),
               ukuranKaosNama: findVal('ukuran kaos_pes', 'ukuran kaos pes', 'ukuran kaos', 'ukuran_kaos', 'kaos', 'size kaos', 'size baju', 'ukuran'),
               bisNama: findVal('armada bis', 'nomor bis', 'bus', 'bis', 'bis_nama', 'armada'),

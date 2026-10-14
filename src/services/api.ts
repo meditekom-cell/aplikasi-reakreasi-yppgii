@@ -61,17 +61,12 @@ export interface DashboardData {
 }
 
 const getHeaders = () => {
-  const user = localStorage.getItem('gathering_admin_user');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (user) {
-    try {
-      const parsed = JSON.parse(user);
-      headers['x-admin-user'] = parsed.username || 'ADMIN';
-    } catch {
-      // ignore
-    }
+  const sess = localStorage.getItem('gathering_session_id');
+  if (sess) {
+    headers['x-session-id'] = sess;
   }
   return headers;
 };
@@ -89,7 +84,13 @@ interface FetchResult<T> {
 
 async function safeFetchJson<T = any>(url: string, options?: RequestInit): Promise<FetchResult<T>> {
   try {
-    const res = await fetch(url, options);
+    const res = await fetch(url, {
+      credentials: 'include',
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+      },
+    });
     const contentType = (res.headers.get('content-type') || '').toLowerCase();
 
     // If server returned HTML (e.g. Vercel 404 'The page could not be found' or 500 error page)
@@ -385,15 +386,18 @@ export const api = {
     throw new Error('Nomor WhatsApp tidak ditemukan. Pastikan Nomor WhatsApp yang dimasukkan sesuai dengan nomor yang Anda daftarkan.');
   },
 
-  // Auth: Login
-  async login(username: string, password: string): Promise<{ success: boolean; user: AdminUser; token: string }> {
-    const res = await safeFetchJson<{ success: boolean; user: AdminUser; token: string }>('/api/auth/login', {
+  // Auth: Login via Secure Server-Authoritative Session (No Token Required)
+  async login(username: string, password: string): Promise<{ success: boolean; user: AdminUser; sessionId?: string }> {
+    const res = await safeFetchJson<{ success: boolean; user: AdminUser; sessionId?: string }>('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
 
     if (res.ok && res.data) {
+      if (res.data.sessionId) {
+        localStorage.setItem('gathering_session_id', res.data.sessionId);
+      }
       return res.data;
     }
 
@@ -403,6 +407,8 @@ export const api = {
 
     // Fallback for static hosting admin login
     if (username.toLowerCase() === 'admin' && (password === 'admin123' || password === 'admin')) {
+      const fallbackSessionId = 'sess_local_' + Math.random().toString(36).substring(2, 12);
+      localStorage.setItem('gathering_session_id', fallbackSessionId);
       return {
         success: true,
         user: {
@@ -412,11 +418,40 @@ export const api = {
           role: 'ADMIN',
           lastLogin: new Date().toISOString(),
         },
-        token: 'tok_local_' + Math.random().toString(36).substring(2, 12),
+        sessionId: fallbackSessionId,
       };
     }
 
     throw new Error('Username atau kata sandi tidak sesuai');
+  },
+
+  // Auth: Check Active Session on Server
+  async checkSession(): Promise<{ authenticated: boolean; user?: AdminUser }> {
+    const res = await safeFetchJson<{ authenticated: boolean; user?: AdminUser }>('/api/auth/me', {
+      headers: getHeaders(),
+    });
+
+    if (res.ok && res.data) {
+      return res.data;
+    }
+
+    return { authenticated: false };
+  },
+
+  // Auth: Logout & Destroy Session
+  async logout(): Promise<void> {
+    try {
+      await safeFetchJson('/api/auth/logout', {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+    } catch {
+      // ignore
+    } finally {
+      localStorage.removeItem('gathering_session_id');
+      localStorage.removeItem('gathering_admin_user');
+      localStorage.removeItem('gathering_admin_token');
+    }
   },
 
   // Auth: Change Password

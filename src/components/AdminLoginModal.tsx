@@ -29,7 +29,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       setErrorMsg(null);
       const res = await api.login(username.trim(), password.trim());
       localStorage.setItem('gathering_admin_user', JSON.stringify(res.user));
-      localStorage.setItem('gathering_admin_token', res.token);
       onLoginSuccess(res.user);
       onClose();
     } catch (err: any) {
@@ -58,7 +57,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
               Autentikasi Admin
             </h3>
             <p className="text-xs text-slate-400">
-              SHA-256 + Salt • Akses Manajemen Gathering
+              Sesi Server HttpOnly • Proteksi Anti Brute-Force
             </p>
           </div>
         </div>
